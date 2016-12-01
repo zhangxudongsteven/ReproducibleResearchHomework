@@ -1,0 +1,151 @@
+---
+title: "Analysis on the Consequences of weather events in U.S."
+author: "Steven Zhang"
+date: "Dec 1, 2016"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+```
+
+# 1 - Synopsis
+
+Storms and other severe weather events can cause both public health and economic problems for communities and municipalities. Many severe events can result in fatalities, injuries, and property damage, and preventing such results to the extent possible is a key concern.
+
+This analysis involves exploring the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This *[database](https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2)* tracks characteristics of major storms and weather events in the United States, including when and where they occur, as well as estimates of any fatalities, injuries, and property damage. 
+
+During this analysis, I will focus on these questions:
+
+ - Across the United States, which types of events are most harmful with respect to population health?
+ - Across the United States, which types of events have the greatest economic consequences?
+
+# 2 - Data Preprocessing
+
+## 2.1 - Before Loading
+
+The data is downloaded and extracted locally. I have tried to load the data directly but failed. Seems that there are a lot of mistakes in the data, including inline eof, multiple quotation marks etc. To solve this problem, I have used the MS Excel to open the file, and performed following actions:
+
+- Delete the description column, which is long string type and leads to lots of errors.
+- Delete all the mismatch rows, which are not properly decoded due to some unknown reason.
+
+After these steps, I got a 902141 * 36 CSV file.
+
+## 2.2 - Data Loading
+
+```{r data.loading}
+df <- read.csv("repdata%2Fdata%2FStormData1.csv")
+names(df)
+```
+
+## 2.3 - Features & Measures Choosing
+
+To answer the questions, the columns in need are listed below:
+
+- EVTYPE: Event Type
+- BNG_DATE: Date Time
+- FATALITIES: Number of Fatalities
+- INJURIES: Number of Injuries
+- PROPDMG: Property Damage
+- PROPDMGEXP: Units for Property Damage (magnitudes - K,B,M)
+- CROPDMG: Crop Damage
+- CROPDMGEXP: Units for Crop Damage (magnitudes - K,BM,B)
+
+```{r columns.choosing}
+df <- select(df, c(EVTYPE, BGN_DATE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP))
+```
+
+We need to notice that property damage and crop damage are with multiple magnitudes, we need to handle it firstly. Attention, the symbols like "+", "-" and "?" will be omitted.
+
+```{r magnitudes}
+library(plyr)
+df$PROPDMGEXP <- mapvalues(df$PROPDMGEXP, from = c("K", "M", "", "B", "m", "+", "0", "5", "6", "?", "4", "2", "3", "h", "7", "H", "-", "1", "8"), to = c(10^3, 10^6, 1, 10^9, 10^6, 0, 1, 10^5, 10^6, 0, 10^4, 10^2, 10^3, 10^2, 10^7, 10^2, 0, 10, 10^8))
+df$PROPDMGEXP <- as.numeric(as.character(df$PROPDMGEXP))
+df$PROPDMG <- (df$PROPDMG * df$PROPDMGEXP)
+df$CROPDMGEXP <- mapvalues(df$CROPDMGEXP, from = c("", "M", "K", "m", "B", "?", "0", "k", "2"), to = c(1, 10^6, 10^3, 10^6, 10^9, 0, 1, 10^3, 10^2))
+df$CROPDMGEXP <- as.numeric(as.character(df$CROPDMGEXP))
+df$CROPDMG <- (df$CROPDMG * df$CROPDMGEXP)
+detach("package:plyr", unload=TRUE)
+df <- select(df, c(-CROPDMGEXP, -PROPDMGEXP))
+```
+
+So far, The data is ready.
+
+# 3 - Exploratory Research
+
+There are too many types to plot. I have to aggregate data firstly. 
+
+```{r summarise}
+df.by.event <- df %>% group_by(EVTYPE) %>% summarise(FATALITIES = sum(FATALITIES), INJURIES = sum(INJURIES), PROPDMG = sum(PROPDMG), CROPDMG = sum(CROPDMG))
+df.by.event.fatal <- arrange(df.by.event, desc(FATALITIES))
+df.by.event.injury <- arrange(df.by.event, desc(INJURIES))
+df.by.event.property <- arrange(df.by.event, desc(PROPDMG))
+df.by.event.crop <- arrange(df.by.event, desc(CROPDMG))
+```
+
+## 3.1 - Question A
+
+Across the United States, which types of events are most harmful with respect to population health?
+
+```{r plot1}
+temp <- df.by.event.fatal[1:12,]
+temp$EVTYPE <- reorder(temp$EVTYPE, -temp$FATALITIES)
+f <- ggplot(temp, aes(EVTYPE, FATALITIES))
+p1 <- f + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p1 <- p1 + xlab("")+ ylab("Fatalities (log total)") + ggtitle("Population Health Impact - Fatalities")+ scale_y_log10()
+```
+
+```{r plot2}
+temp <- df.by.event.injury[1:12,]
+temp$EVTYPE <- reorder(temp$EVTYPE, -temp$INJURIES)
+f <- ggplot(temp, aes(EVTYPE, INJURIES))
+p2 <- f + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p1 <- p1 + xlab("") + ylab("Injuries (log total)") + ggtitle("Population Health Impact - Injuries")+ scale_y_log10()
+grid.arrange(p1, p2, ncol = 1, nrow = 2)
+```
+
+## 3.2 - Question B
+
+Across the United States, which types of events have the greatest economic consequences?
+
+```{r plot3}
+temp <- df.by.event.property[1:12,]
+temp$EVTYPE <- reorder(temp$EVTYPE, -temp$PROPDMG)
+f <- ggplot(temp, aes(EVTYPE, PROPDMG))
+p1 <- f + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p1 <- p1 + xlab("")  + ylab("log cost ($)") + ggtitle("Economic effects")+ scale_y_log10()
+```
+
+```{r plot4}
+temp <- df.by.event.crop[1:12,]
+temp$EVTYPE <- reorder(temp$EVTYPE, -temp$CROPDMG)
+f <- ggplot(temp, aes(EVTYPE, CROPDMG))
+p2 <- f + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+p1 <- p1 + xlab("") + ylab("log cost ($)") + ggtitle("Economic effects")+ scale_y_log10()
+grid.arrange(p1, p2, ncol = 1, nrow = 2)
+```
+
+# 4 - Results
+
+As demonstrated by the charts, **TORNADO** causes the most of deaths and injures. Specifically in fatalities, **EXCESSIVE HEAT**, **FLASH FLOOD** and **HEAT** come behind. Specifically in injuries, we see **TSTM WIND**, **FLOOD** and **EXCESSIVE HEAT**.
+
+About property, **FLOOD** causes the most property damage, followed by **HURRICANE**, **TORNADO** and **STORM SURGE**.
+**DROUGHT** causes most crop damage, follwed by **FLOOD**, **RIVER FLOOD** and **ICE STORM**.
+
+Based on evidences demonstrated above, **TORNADO** and **FLOOD** are the most serious weather events. The government and other NGOs need to pay attention on them mostly. We need to prepare to face them, and teach people about what to do during these events.
+
+# 5 - Summary
+
+## 5.1 - Reference
+
+- *[National Weather Service Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf)*
+- *[National Climatic Data Center Storm Events FAQ](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2FNCDC%20Storm%20Events-FAQ%20Page.pdf)*
+
+## 5.2 - Software & Hardware Env.
+
+```{r env}
+sessionInfo()
+```
